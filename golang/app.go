@@ -2,7 +2,6 @@ package main
 
 import (
 	crand "crypto/rand"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -193,30 +192,30 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 		}
 
 		for i := 0; i < len(comments); i++ {
-			it, err := mc.Get(fmt.Sprintf("user_id:%d", comments[i].User))
-			if err == nil {
-				err := json.Unmarshal(it.Value, &comments[i].User)
+			//it, err := mc.Get(fmt.Sprintf("user_id:%d", comments[i].User))
+			//if err == nil {
+			//	err := json.Unmarshal(it.Value, &comments[i].User)
 
-				if err != nil {
-					continue
-				}
-			}
+			//	if err != nil {
+			//		continue
+			//	}
+			//}
 			err = db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
 			if err != nil {
 				return nil, err
 			}
 
-			j, err := json.Marshal(comments[i].User)
-			if err != nil {
-				log.Fatal(err)
-				continue
-			}
+			//j, err := json.Marshal(comments[i].User)
+			//if err != nil {
+			//	log.Fatal(err)
+			//	continue
+			//}
 
-			mc.Set(&memcache.Item{
-				Key:        fmt.Sprintf("user_id:%d", comments[i].User),
-				Value:      j,
-				Expiration: 3600,
-			})
+			//mc.Set(&memcache.Item{
+			//	Key:        fmt.Sprintf("user_id:%d", comments[i].User),
+			//	Value:      j,
+			//	Expiration: 3600,
+			//})
 		}
 
 		// reverse
@@ -226,6 +225,9 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 
 		p.Comments = comments
 
+		if err == nil {
+
+		}
 		err = db.Get(&p.User, "SELECT * FROM `users` WHERE `id` = ?", p.UserID)
 		if err != nil {
 			return nil, err
