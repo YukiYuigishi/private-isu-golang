@@ -1,5 +1,7 @@
 This repository is a fork of [catatsuy/private-isu](https://github.com/catatsuy/private-isu).
-
+## score
+初期スコア `0`
+最終スコア `16762`
 ## 総括・反省
 初めてisuconの問題を解いたため、戸惑いも多かったですが、大変勉強になりました。  
 nginxのログの設定など、初めて行うことも多かったため、設定が上手く行かず多くの時間を消費してしまいました。焦ると見落としが多くなるので、改善していきたいです。  
