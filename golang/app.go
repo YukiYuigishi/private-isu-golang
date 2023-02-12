@@ -2,6 +2,7 @@ package main
 
 import (
 	crand "crypto/rand"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -27,6 +28,7 @@ import (
 var (
 	db    *sqlx.DB
 	store *gsm.MemcacheStore
+	mc    *memcache.Client
 )
 
 const (
@@ -36,34 +38,34 @@ const (
 )
 
 type User struct {
-	ID          int       `db:"id"`
-	AccountName string    `db:"account_name"`
-	Passhash    string    `db:"passhash"`
-	Authority   int       `db:"authority"`
-	DelFlg      int       `db:"del_flg"`
-	CreatedAt   time.Time `db:"created_at"`
+	ID          int       `db:"id" json:"ID"`
+	AccountName string    `db:"account_name" json:"AccountName"`
+	Passhash    string    `db:"passhash" json:"Passhash"`
+	Authority   int       `db:"authority" json:"Authority"`
+	DelFlg      int       `db:"del_flg" json:"DelFlg"`
+	CreatedAt   time.Time `db:"created_at" json:"CreatedAt"`
 }
 
 type Post struct {
-	ID           int       `db:"id"`
-	UserID       int       `db:"user_id"`
-	Imgdata      []byte    `db:"imgdata"`
-	Body         string    `db:"body"`
-	Mime         string    `db:"mime"`
-	CreatedAt    time.Time `db:"created_at"`
-	CommentCount int
-	Comments     []Comment
-	User         User
-	CSRFToken    string
+	ID           int       `db:"id" json:"id"`
+	UserID       int       `db:"user_id" json:"userID"`
+	Imgdata      []byte    `db:"imgdata" json:"Imagedata"`
+	Body         string    `db:"body" json:"body"`
+	Mime         string    `db:"mime" json:"mime"`
+	CreatedAt    time.Time `db:"created_at" json:"createdAt"`
+	CommentCount int       `json:"commentCount"`
+	Comments     []Comment `json:"comments"`
+	User         User      `json:"user"`
+	CSRFToken    string    `json:"CSRFToken"`
 }
 
 type Comment struct {
-	ID        int       `db:"id"`
-	PostID    int       `db:"post_id"`
-	UserID    int       `db:"user_id"`
-	Comment   string    `db:"comment"`
-	CreatedAt time.Time `db:"created_at"`
-	User      User
+	ID        int       `db:"id" json:"ID"`
+	PostID    int       `db:"post_id" json:"PostID"`
+	UserID    int       `db:"user_id" json:"UserID"`
+	Comment   string    `db:"comment" json:"Comment"`
+	CreatedAt time.Time `db:"created_at" json:"CreatedAt"`
+	User      User      `json:"User"`
 }
 
 func init() {
@@ -679,11 +681,31 @@ func getImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	post := Post{}
-	err = db.Get(&post, "SELECT * FROM `posts` WHERE `id` = ?", pid)
+
+	// memcachedから情報を取得
+	it, err := mc.Get(fmt.Sprintf("pid:%d", pid))
 	if err != nil {
-		log.Print(err)
-		return
+		err = db.Get(&post, "SELECT * FROM `posts` WHERE `id` = ?", pid)
+		if err != nil {
+			log.Print(err)
+			return
+		}
+
+		j, err := json.Marshal(post)
+
+		if err != nil {
+			log.Print(err)
+			return
+		}
+
+		mc.Set(&memcache.Item{
+			Key:        fmt.Sprintf("pid:%d", pid),
+			Value:      j,
+			Expiration: 3600,
+		})
 	}
+
+	json.Unmarshal(it.Value, &post)
 
 	ext := chi.URLParam(r, "ext")
 
@@ -800,6 +822,11 @@ func main() {
 	if port == "" {
 		port = "3306"
 	}
+
+	memcachedAddr := os.Getenv("ISUCONP_MEMCACHED_ADDRESS")
+	if memcachedAddr == "" {
+		memcachedAddr = "memcached:11211"
+	}
 	_, err := strconv.Atoi(port)
 	if err != nil {
 		log.Fatalf("Failed to read DB port number from an environment variable ISUCONP_DB_PORT.\nError: %s", err.Error())
@@ -828,6 +855,8 @@ func main() {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
 	defer db.Close()
+
+	mc = memcache.New(memcachedAddr)
 
 	r := chi.NewRouter()
 
