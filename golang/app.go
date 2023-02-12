@@ -2,6 +2,7 @@ package main
 
 import (
 	crand "crypto/rand"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -224,11 +225,25 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 		}
 
 		p.Comments = comments
+		it, err := mc.Get(fmt.Sprintf("user_id:%d", p.UserID))
+		if err != nil {
+			err = db.Get(&p.User, "SELECT * FROM `users` WHERE `id` = ?", p.UserID)
+			if err != nil {
+				return nil, err
+			}
 
-		if err == nil {
-
+			j, err := json.Marshal(p.User)
+			if err != nil {
+				log.Fatal(err)
+			}
+			mc.Set(&memcache.Item{
+				Key:        fmt.Sprintf("user_id:%d", p.UserID),
+				Value:      j,
+				Expiration: 3600,
+			})
 		}
-		err = db.Get(&p.User, "SELECT * FROM `users` WHERE `id` = ?", p.UserID)
+
+		err = json.Unmarshal(it.Value, p.User)
 		if err != nil {
 			return nil, err
 		}
