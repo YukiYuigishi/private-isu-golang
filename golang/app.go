@@ -2,6 +2,7 @@ package main
 
 import (
 	crand "crypto/rand"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -27,6 +28,7 @@ import (
 var (
 	db    *sqlx.DB
 	store *gsm.MemcacheStore
+	mc    *memcache.Client
 )
 
 const (
@@ -36,16 +38,16 @@ const (
 )
 
 type User struct {
-	ID          int       `db:"id"`
-	AccountName string    `db:"account_name"`
-	Passhash    string    `db:"passhash"`
-	Authority   int       `db:"authority"`
-	DelFlg      int       `db:"del_flg"`
-	CreatedAt   time.Time `db:"created_at"`
+	ID          int       `db:"id" json:"ID"`
+	AccountName string    `db:"account_name" json:"AccountName"`
+	Passhash    string    `db:"passhash" json:"Passhash"`
+	Authority   int       `db:"authority" json:"Authority"`
+	DelFlg      int       `db:"del_flg" json:"DelFlg"`
+	CreatedAt   time.Time `db:"created_at" json:"CreatedAt"`
 }
 
 type Post struct {
-	ID           int       `db:"id"`
+	ID           int       `db:"id" `
 	UserID       int       `db:"user_id"`
 	Imgdata      []byte    `db:"imgdata"`
 	Body         string    `db:"body"`
@@ -58,11 +60,11 @@ type Post struct {
 }
 
 type Comment struct {
-	ID        int       `db:"id"`
-	PostID    int       `db:"post_id"`
-	UserID    int       `db:"user_id"`
-	Comment   string    `db:"comment"`
-	CreatedAt time.Time `db:"created_at"`
+	ID        int       `db:"id" json:"ID"`
+	PostID    int       `db:"post_id" json:"PostID"`
+	UserID    int       `db:"user_id" json:"UserID"`
+	Comment   string    `db:"comment" json:"Comment"`
+	CreatedAt time.Time `db:"created_at" json:"CreatedAt"`
 	User      User
 }
 
@@ -191,10 +193,30 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 		}
 
 		for i := 0; i < len(comments); i++ {
-			err := db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
+			it, err := mc.Get(fmt.Sprintf("user_id:%d", comments[i].User))
+			if err == nil {
+				err := json.Unmarshal(it.Value, &comments[i].User)
+
+				if err != nil {
+					continue
+				}
+			}
+			err = db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
 			if err != nil {
 				return nil, err
 			}
+
+			j, err := json.Marshal(comments[i].User)
+			if err != nil {
+				log.Fatal(err)
+				continue
+			}
+
+			mc.Set(&memcache.Item{
+				Key:        fmt.Sprintf("user_id:%d", comments[i].User),
+				Value:      j,
+				Expiration: 3600,
+			})
 		}
 
 		// reverse
@@ -800,6 +822,11 @@ func main() {
 	if port == "" {
 		port = "3306"
 	}
+
+	memcacheAddr := os.Getenv("ISUCONP_MEMCACHED_ADDRESS")
+	if memcacheAddr == "" {
+		memcacheAddr = "memcached:11211"
+	}
 	_, err := strconv.Atoi(port)
 	if err != nil {
 		log.Fatalf("Failed to read DB port number from an environment variable ISUCONP_DB_PORT.\nError: %s", err.Error())
@@ -824,6 +851,7 @@ func main() {
 	)
 
 	db, err = sqlx.Open("mysql", dsn)
+	mc = memcache.New(memcacheAddr)
 	if err != nil {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
